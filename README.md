@@ -69,6 +69,9 @@ Top-level files:
 - `icp_pointcloud_merge_batch_v8_se3.py`  
   An alternative/experimental streaming merge script with more modes (full SE(3), translation-only, yaw-only), point-to-plane ICP variants, and similar sliding-window deduplication. The recommended default script is currently `icp_merge.py`.
 
+- `icp_ploting`  
+  A diagnostic variant of `icp_pointcloud_merge_batch_v8_se3.py` that performs the same streamed merge but additionally **logs ICP RMSE per adjacent batch pair** to CSV and generates a **Seaborn/Matplotlib bar plot** of alignment errors.
+
 - `pcd_cluster_v1.py`  
   Post-processing on a merged `.ply` point cloud:
   - Fit ground plane using RANSAC.
@@ -154,6 +157,8 @@ You will need (at minimum):
 - Python packages:
   - `torch` (with CUDA), `torchvision` as appropriate for your hardware.
   - `numpy`
+  - `matplotlib`
+  - `seaborn`
   - `trimesh`
   - `pycolmap`
   - `open3d`
@@ -325,6 +330,44 @@ Notes:
 - `icp_merge.py` is tuned for a robot moving along a row, so **yaw-only** rotation is appropriate.  
   For more general motion, `icp_pointcloud_merge_batch_v8_se3.py` provides more flexible SE(3)/translation-only modes.
 
+#### 5.4.1. ICP Diagnostics and Plots (`icp_ploting`)
+
+`icp_ploting` exposes the same core functionality as `icp_pointcloud_merge_batch_v8_se3.py` (streamed merge with multiple ICP modes and voxel-hash deduplication), but additionally:
+
+- records, for each successfully aligned adjacent batch pair, the **ICP RMSE** into a CSV file, and  
+- produces a **bar plot** summarizing alignment errors across the sequence.
+
+By default it writes into:
+
+- `ICP_out/registration_errors.csv` – one row per `(batch_i, batch_j)` pair with the corresponding RMSE.  
+- `ICP_out/icp_alignment_errors.png` – Seaborn bar chart (scientific-style) of RMSE vs batch pair index.
+
+Example usage:
+
+```bash
+python icp_ploting \
+  --base_dir /path/to/scene_dir \
+  --sparse_subfolder sparse \
+  --ply points.ply \
+  --out /path/to/output_merged_with_icp_plot.ply \
+  --model_ext ".bin" \
+  --batch_range 1:100 \
+  --icp_mode yaw_pairs_refined
+```
+
+Key arguments (in addition to those documented above for `icp_pointcloud_merge_batch_v8_se3.py`):
+
+- `--icp_mode`  
+  Selects the registration strategy:
+  - `geometry` – full-cloud SE(3) ICP with nearest-neighbor correspondences.
+  - `matched_pairs` – fixed 3D–3D correspondences (SE(3)).
+  - `trans_only_geometry` – translation-only point-to-plane ICP.
+  - `trans_only_pairs` – translation-only from fixed 3D–3D pairs.
+  - `yaw_pairs` – yaw-only rotation + translation from fixed pairs (closed-form).
+  - `yaw_pairs_refined` – yaw-only rotation + translation with a few refinement iterations.
+
+Use `icp_ploting` when you want **quantitative diagnostics** of alignment quality along the sequence, for example when comparing different ICP settings or checking robustness on challenging field runs.
+
 ### 5.5. Ground Plane Fitting and Plant Clustering
 
 `pcd_cluster_v1.py` operates on a merged point cloud (`.ply`) and performs:
@@ -479,6 +522,8 @@ You plan to spend more time on this in upcoming iterations, likely by:
 
 - The ICP merge assumes **yaw-only rotation** around the Y-axis (up). If your robot deviates from a straight line or has significant roll/pitch, you may need the more general SE(3) options in `icp_pointcloud_merge_batch_v8_se3.py` or a different registration strategy.
 
+- When using `icp_ploting`, ensure `matplotlib` and `seaborn` are installed; the script will create an `ICP_out/` directory if it does not exist and save both the CSV log and the PNG plot there.
+
 - Color-based thresholds in `pcd_cluster_v1.py` are tuned for a particular imaging setup.  
   You will likely need to adjust HSV ranges and DBSCAN parameters for different cameras, lighting, or cultivars.
 
@@ -490,7 +535,7 @@ Implementation status relative to the planned pipeline:
 
 - [x] Sequence partitioning of multi-camera sequences (`batch_divider_v2.py`).
 - [x] Batch-wise VGGT reconstruction and COLMAP export (`demo_colmap_perc.py`).
-- [x] Multi-batch stitching with yaw-constrained ICP and voxel-hash merge (`icp_merge.py` / `icp_pointcloud_merge_batch_v8_se3.py`).
+- [x] Multi-batch stitching with yaw-constrained ICP and voxel-hash merge (`icp_merge.py` / `icp_pointcloud_merge_batch_v8_se3.py` / `icp_ploting`).
 - [x] Ground-plane fitting, height cropping, and plant clustering (`pcd_cluster_v1.py`).
 - [ ] Robust scale recovery using known-volume boxes (design complete, implementation pending).
 - [ ] Mesh reconstruction per plant and mesh-based volume estimation.
