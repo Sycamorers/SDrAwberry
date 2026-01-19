@@ -447,7 +447,7 @@ def main():
 
     # Yaw-only ICP refinement iterations
     ap.add_argument(
-        "--icp_iters", type=int, default=3,
+        "--icp_iters", type=int, default=20,
         help="Number of refinement iterations for yaw_pairs_refined."
     )
 
