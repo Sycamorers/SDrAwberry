@@ -1,97 +1,37 @@
-# Straw-VGGT: Long-Sequence Multi-Camera 3D Reconstruction for Strawberry Plants
+# Straw-DA3: Depth-Anything-3 Reconstruction Toolkit for Strawberry Rows
 
-This repository contains an experimental pipeline for reconstructing strawberry plants in the field using the VGGT model.  
-The focus is on **long multi-camera sequences** captured by a field robot moving along straight rows, and on **per-plant volume estimation** from 3D reconstructions.
+This repository now centers on a **Depth-Anything-3 (DA3)** base method for long multi-camera sequences captured by the field robot. The old VGGT-specific notes have been replaced with instructions that reflect the new batching wrapper, ICP merger, clustering flow, and the concave-hull volume utility that were recently added.
 
-The code here provides:
+At a high level the pipeline is:
 
-- Sequence partitioning of long, multi-camera sequences into overlapping batches.
-- Batch-wise 3D reconstruction using VGGT, with COLMAP-compatible outputs.
-- Stitching of per-batch point clouds using yaw-constrained ICP and streaming deduplication.
-- Ground-plane fitting, height-based cropping, and color + DBSCAN clustering to isolate individual strawberry plants.
-- Hooks for future **scale recovery** via known-volume boxes and **mesh-based volume estimation** per plant.
+1. **Batch multi-camera footage** with `batch_divider_DA3.py`, which flattens each mini-scene, produces consistency summaries, and invokes either the DA3 CLI or a legacy single-scene script.
+2. **Reconstruct each batch** via DA3 (default) to obtain COLMAP-formatted sparse models plus optional per-batch point clouds.
+3. **Stream-merge batches** with yaw-constrained ICP (`icp_merge.py`) or the diagnostic variant `icp_ploting`, yielding one global point cloud in robot coordinates.
+4. **Isolate individual plants** in the merged point cloud using `pcd_cluster_v4.py`, which fits the ground plane, runs HSV-based masking, and clusters vegetation with DBSCAN plus ground-like rejection rules.
+5. **Estimate canopy/box volumes** through watertight concave hull meshes produced by `concave_hull.py`, with optional color transfer and scale-aware reporting.
 
-Your project outline and research questions are captured and reflected in this README.
-
----
-
-## 1. Overall Pipeline
-
-Conceptually, the full pipeline is:
-
-1. **Sequence Partitioning (done)**  
-   - The raw multi-camera sequence is divided into smaller batches (mini-scenes), with at least 50% frame overlap.  
-   - Overlap ensures enough common views for 3D point matching and later stitching.
-
-2. **Batch-wise 3D Reconstruction using VGGT (done)**  
-   - Each batch is reconstructed independently with VGGT to produce a partial point cloud.  
-   - VGGT outputs are **scale-free** (no absolute metric scale); scale is recovered later using known objects.
-
-3. **Point Cloud Stitching (done)**  
-   - Overlapping batches are aligned using 2D feature correspondences from COLMAP mapped into 3D.  
-   - ICP is constrained to the robot’s motion model: **one yaw rotation + translation** rather than full 6-DoF.  
-   - This leverages the fact that the robot moves along a **straight row**, reducing ambiguity and improving robustness.
-
-4. **Scale Recovery (partially done)**  
-   - Boxes of **known volume/shape** are placed in the field of view.  
-   - These act as scale references to convert VGGT’s arbitrary units into metric units.  
-   - The current repository does not yet contain the full implementation, but the downstream pipeline is designed assuming this step will provide a single global (or local-per-region) scale factor.
-
-5. **Post-processing and Volume Estimation (partially done)**  
-   - Fit a ground plane with RANSAC.  
-   - Retain points above/below the plane depending on configuration.  
-   - Cluster strawberry plants (color-based filtering + DBSCAN).  
-   - Planned: for each cluster, reconstruct a **mesh** and compute its volume. Meshes are treated as a finer, more accurate representation than concave hulls (as used in SASP).  
-   - Planned: rescale the per-plant mesh volumes using the recovered metric scale.
-
-The code in this repo currently implements the core of steps **1–3** and parts of **5**, while **4** (scale) and the final **mesh-based volume estimation** are still to be integrated.
+The remainder of this README documents each component in the new workflow.
 
 ---
 
-## 2. Repository Structure
+## Repository Contents
 
-Top-level files:
-
-- `batch_divider_v2.py`  
-  Multi-camera sequence partitioner and batch runner. Split a long sequence into overlapping batches, rename images into a flat format per batch, and run the single-scene reconstruction script (VGGT) for each batch.
-
-- `demo_colmap_perc.py`  
-  Single-scene VGGT demo adapted as the **per-batch reconstruction script**. Given a directory with `images/`, it:
-  - Loads a pre-trained VGGT model.
-  - Predicts camera poses and depth maps.
-  - Converts depth maps into point clouds.
-  - Optionally performs BA (bundle adjustment) via COLMAP/pycolmap.
-  - Writes COLMAP-format sparse reconstruction and a `points.ply` point cloud.
-
-- `icp_merge.py`  
-  Streaming multi-batch point cloud merger with **yaw-only ICP refinement** and windowed deduplication. It assumes the robot travels along a straight line and restricts motion to yaw + translation.
-
-- `icp_pointcloud_merge_batch_v8_se3.py`  
-  An alternative/experimental streaming merge script with more modes (full SE(3), translation-only, yaw-only), point-to-plane ICP variants, and similar sliding-window deduplication. The recommended default script is currently `icp_merge.py`.
-
-- `icp_ploting`  
-  A diagnostic variant of `icp_pointcloud_merge_batch_v8_se3.py` that performs the same streamed merge but additionally **logs ICP RMSE per adjacent batch pair** to CSV and generates a **Seaborn/Matplotlib bar plot** of alignment errors.
-
-- `pcd_cluster_v1.py`  
-  Post-processing on a merged `.ply` point cloud:
-  - Fit ground plane using RANSAC.
-  - Height-based cropping.
-  - Color-based segmentation (leaf/stem HSV thresholds).
-  - DBSCAN clustering to separate individual plants.
-  - Save combined and/or per-cluster point clouds and visualize results.
-
-- `README.md`  
-  This document.
+| File | Description |
+| --- | --- |
+| `batch_divider_DA3.py` | Multi-camera batching wrapper. Splits sequences with overlap, renames images, writes JSON/TXT summaries, and runs each batch through either a VGGT single-scene script or the DA3 CLI (recommended). Includes `--batch_range`, DA3 model/quality knobs, and automatic COLMAP export collection. |
+| `icp_merge.py` | Streaming point-cloud merger that consumes the per-batch COLMAP folders (`sparse/<id>/points.ply`). Uses COLMAP feature correspondences and yaw-only (rotation around the Y-axis) ICP refinements, voxel hashing, and sliding-window deduplication to produce a global `.ply`. |
+| `icp_ploting` | Diagnostic variant of the merger with additional ICP modes (translation-only, matched pairs, yaw-only refined) and automatic logging/plotting of RMSE per adjacent batch pair (`ICP_out/registration_errors.csv` + `.png`). |
+| `pcd_cluster_v4.py` | Plant-centric clustering script driven by a parameter block at the top of the file. Performs HSV masking, plane fitting (optionally using only non-plant points), DBSCAN, per-cluster filtering, and visualization/saving of clustered clouds. |
+| `concave_hull.py` | Unified watertight concave hull (alpha-shape) workflow with jitter/normalization/fill-hole options, color transfer, and optional global scaling to report physical units. Outputs every tested `k` mesh plus `summary_concave.json`. |
+| `README.md` | This document. |
 
 ---
 
-## 3. Data Layout and Assumptions
+## Data Layout
 
-### 3.1. Multi-Camera Scene Layout
+The batching wrapper expects the following tree:
 
-`batch_divider_v2.py` assumes a **multi-camera** directory structure:
-
-```text
+```
 scene_dir/
   images/
     <cam_serial_1>/
@@ -103,442 +43,186 @@ scene_dir/
     ...
 ```
 
-Where:
+* `frame_id` is a decimal string (leading zeros allowed).
+* All cameras sit under `images/`, and each contains an `rgb/` subfolder.
+* Missing frames per camera are tolerated—the summary will flag counts that deviate from the expected number of cameras.
 
-- `<cam_serial_x>` is the string identifying each camera (e.g. serial number).
-- File names follow `rgb_<frame_id>.png`, where `<frame_id>` is a decimal integer, optionally with leading zeros (e.g. `000123`).
-- Different cameras may have **missing frames**; the script logs per-frame image counts and warns when they don’t match the expected number of cameras.
-
-Within each batch, the script:
-
-- Groups frames by `frame_id`.
-- Sorts images per frame by `(cam_serial, filename)` to ensure consistent ordering.
-- Copies or symlinks images into `scene_dir/batches/<NN>/images/`, renaming to:
-
-```text
-<frame_id_str>_<cam_serial>.png
-```
-
-### 3.2. Single-Scene Layout for VGGT
-
-`demo_colmap_perc.py` expects a per-scene layout:
-
-```text
-scene_dir/
-  images/
-    *.png
-```
-
-When run via `batch_divider_v2.py`, each batch directory is already formatted like this:
-
-```text
-scene_dir/
-  batches/
-    01/
-      images/
-        000123_camA.png
-        000123_camB.png
-        ...
-    02/
-      images/
-        ...
-```
+Each batch is flattened into `scene_dir/batches/<NN>/images/` with files renamed to `<frame_id>_<cam>.png`, so DA3 or any single-scene script sees a standard COLMAP-style folder.
 
 ---
 
-## 4. Dependencies and Environment
+## Dependencies & Installation
 
-This repository is not a standalone VGGT implementation; it wraps the **VGGT model and utilities** from Meta’s VGGT project, plus COLMAP/pycolmap and Open3D.
+* **Python 3.9+** with the following packages (install via `pip` or `conda`): `numpy`, `opencv-python`, `open3d`, `matplotlib`, `seaborn`, `pycolmap`, `trimesh` (optional but preferred for PLY export), and `torch` if you still run the VGGT script.
+* **Depth-Anything-3 CLI (`da3`)**. Install from Meta's Depth-Anything-3 release or the official PyPI package. The CLI downloads model weights (default `depth-anything/DA3NESTED-GIANT-LARGE-1.1`) on first use.
+* **COLMAP model I/O helper** `read_write_model.py` needs to be available on `PYTHONPATH` for `icp_merge.py`/`icp_ploting` (drop the file next to the scripts or install COLMAP).
+* A CUDA GPU is required for DA3 reconstruction. `batch_divider_DA3.py` exposes flags to force CPU but it will be extremely slow.
 
-You will need (at minimum):
-
-- Python 3.8+ (3.9/3.10 recommended).
-- GPU with CUDA (VGGT is heavy and assumes GPU).
-- Python packages:
-  - `torch` (with CUDA), `torchvision` as appropriate for your hardware.
-  - `numpy`
-  - `matplotlib`
-  - `seaborn`
-  - `trimesh`
-  - `pycolmap`
-  - `open3d`
-  - `opencv-python` (for `cv2`)
-  - VGGT codebase and its dependencies:
-    - `vggt.models.vggt.VGGT`
-    - `vggt.utils.load_fn.load_and_preprocess_images_square`
-    - `vggt.utils.pose_enc.pose_encoding_to_extri_intri`
-    - `vggt.utils.geometry.unproject_depth_map_to_point_map`
-    - `vggt.utils.helper.create_pixel_coordinate_grid`, `randomly_limit_trues`
-    - `vggt.dependency.track_predict.predict_tracks`
-    - `vggt.dependency.np_to_pycolmap.batch_np_matrix_to_pycolmap` and `_wo_track`
-- COLMAP model IO utilities (`read_write_model.py` from COLMAP, or equivalent), placed on the Python path so that:
-  - `from read_write_model import read_model` works for the ICP scripts.
-
-VGGT weights are downloaded automatically in `demo_colmap_perc.py` via:
-
-```python
-_URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
-model.load_state_dict(torch.hub.load_state_dict_from_url(_URL))
-```
-
-So you need network access and valid HuggingFace access for the first run.
-
----
-
-## 5. Step-by-Step Usage
-
-### 5.1. Prepare a Scene
-
-Organize your raw data into the multi-camera layout described above:
-
-```text
-scene_dir/
-  images/
-    cam01/
-      rgb/
-        rgb_000001.png
-        rgb_000002.png
-        ...
-    cam02/
-      rgb/
-        rgb_000001.png
-        rgb_000002.png
-        ...
-```
-
-Check that:
-
-- **Frame IDs** are consistent across cameras wherever possible.
-- All images are in PNG format and named `rgb_<id>.png`.
-
-### 5.2. Partition Sequence and Run Per-Batch VGGT
-
-Use `batch_divider_v2.py` to partition the long multi-camera sequence into overlapping batches and run `demo_colmap_perc.py` for each batch:
+Example environment setup:
 
 ```bash
-python batch_divider_v2.py \
+conda create -n straw-da3 python=3.10
+conda activate straw-da3
+pip install numpy opencv-python open3d matplotlib seaborn pycolmap trimesh
+pip install git+https://github.com/DepthAnything/Depth-Anything-V3  # or the official DA3 package
+```
+
+Make sure the `da3` executable resolves on your `PATH` before running the wrapper.
+
+---
+
+## Step-by-Step Workflow
+
+### 1. Partition Multi-Camera Sequences & Run DA3
+
+`batch_divider_DA3.py` handles both the flattening of `images/` and the per-batch reconstruction. Key capabilities:
+
+* Stable sort of images per frame by `(cam_serial, filename)` to ensure deterministic multi-view ordering.
+* Automatic padding of batch folder names (`01`, `02`, …) with detection/renaming of legacy `001` style directories.
+* Summary exports (`batch_summary.json` + `.txt`) that list frames, detected cameras, and missing-frame warnings before any reconstruction starts.
+* Flexible selection of batches through `--only_batch`, `--max_batches`, or the new `--batch_range start-end` flag (mutually exclusive).
+* DA3 backend options (`--backend da3`) that directly invoke `da3 images ... --export-format colmap` and collect COLMAP BIN results under `scene_dir/sparse/<NN>/`.
+
+Example command (DA3 backend, overlapping batches, automatic PLY export):
+
+```bash
+python batch_divider_DA3.py \
   --scene_dir /path/to/scene_dir \
-  --batch_size 10 \
-  --overlap_frames 5 \
+  --batch_size 12 \
+  --overlap_frames 6 \
   --symlink \
-  --demo_script demo_colmap_perc.py \
-  --demo_args "--use_ba" \
-  --cams_per_frame 4
+  --backend da3 \
+  --batch_range 1-40 \
+  --da3_model_dir depth-anything/DA3NESTED-GIANT-LARGE-1.1 \
+  --da3_device cuda \
+  --da3_conf_thresh_percentile 35 \
+  --da3_num_max_points 1500000 \
+  --da3_process_res 576 \
+  --da3_export_ply
 ```
 
-Key options:
+Notes:
 
-- `--scene_dir`  
-  Root folder containing the `images/` tree shown above.
+* Use `--symlink` to avoid copying large image trees; the wrapper removes/relinks files safely each run.
+* `--cams_per_frame` enforces an expected count; otherwise the script infers it from the directory structure and reports frames that deviate.
+* With `--backend vggt` the wrapper will run a single-scene Python script (default `demo_colmap_perc.py`) inside each batch and then move its `sparse/` outputs next to the batching root. This mode is retained only for backward compatibility.
+* DA3-specific options such as `--da3_ref_view_strategy` and `--da3_disable_triton` are exposed for fine control over quality/speed and compatibility.
 
-- `--batch_size`  
-  Number of frames per batch.
+Outputs after this step:
 
-- `--overlap_frames`  
-  Number of overlapping frames between consecutive batches.  
-  Must satisfy `batch_size > overlap_frames`. Overlap ~50% is recommended for robust stitching.
+* `scene_dir/batches/<NN>/images/` – flattened per-batch folders.
+* `scene_dir/sparse/<NN>/` – DA3-exported COLMAP models (`cameras.bin`, `images.bin`, `points3D.bin`, and optionally `points.ply`).
+* `scene_dir/batch_summary.{json,txt}` – metadata for quick sanity checks.
 
-- `--symlink`  
-  Use symlinks instead of copying images (saves disk and time).
+### 2. Merge Batch Reconstructions
 
-- `--only_batch` / `--max_batches`  
-  Restrict processing to a single batch or the first N batches.
-
-- `--demo_script` / `--demo_args`  
-  Script and extra CLI arguments for the single-scene reconstruction. `demo_args` is a split string, so you can pass `--demo_args "--use_ba --conf_thres_value 60"`, etc.
-
-- `--cams_per_frame`  
-  Expected number of cameras per frame. If not supplied, it is inferred from the directory structure.
-
-Outputs in `scene_dir`:
-
-- `batches/<NN>/images/`  
-  Per-batch image folders with renamed files.
-
-- `sparse/<NN>/` (after running the per-batch script)  
-  COLMAP sparse reconstruction for each batch:
-  - `cameras.bin` / `images.bin` / `points3D.bin` (or `.txt` variants, depending on pycolmap).
-  - `points.ply` – the point cloud exported by `demo_colmap_perc.py`.
-
-- `batch_summary.json`, `batch_summary.txt`  
-  Summaries of batches, camera counts, frame ranges, and basic sanity checks.
-
-### 5.3. Single-Scene VGGT Reconstruction (Per Batch)
-
-If you want to run `demo_colmap_perc.py` manually (outside the wrapper), use:
-
-```bash
-python demo_colmap_perc.py \
-  --scene_dir /path/to/single_scene_dir \
-  --use_ba
-```
-
-Where `/path/to/single_scene_dir` contains an `images/` directory with all PNGs inside.  
-The script:
-
-- Loads the VGGT model (bfloat16 or float16 depending on GPU capability).
-- Loads and crops images to a square resolution (e.g. 1024), then runs VGGT at 518×518.
-- Predicts:
-  - Camera intrinsics/extrinsics.
-  - Depth maps and confidence maps.
-- If `--use_ba`:
-  - Uses a VGGSfM-style tracker (`predict_tracks`) to generate 2D tracks.
-  - Converts to COLMAP format via `batch_np_matrix_to_pycolmap`.
-  - Runs bundle adjustment in pycolmap.
-- Else:
-  - Uses confidence thresholding (percentile-based) and random subsampling to convert depth maps into a sparse set of high-confidence 3D points.
-  - Converts directly to a COLMAP sparse model via `_wo_track`.
-- Rescales camera intrinsics back to original image resolution and renames images to original filenames.
-- Writes a COLMAP model and `sparse/points.ply`.
-
-### 5.4. Streamed Multi-Batch Point Cloud Merging
-
-Once each batch has its own `sparse/<NN>` folder and `points.ply`, you can **stitch all batches** into a single global point cloud using `icp_merge.py`:
+Run `icp_merge.py` once all batches have finished. Provide the base directory, the `sparse/` subfolder, and the per-batch PLY filename (default `points.ply`). Example:
 
 ```bash
 python icp_merge.py \
   --base_dir /path/to/scene_dir \
   --sparse_subfolder sparse \
   --ply points.ply \
-  --out /path/to/output_merged.ply \
-  --model_ext ".bin" \
-  --max_batches 100 \
-  --batch_range 1:100
+  --out /path/to/merged_da3.ply \
+  --batch_range 1:60 \
+  --max_batches 60
 ```
 
-Assumptions and behavior:
+Highlights:
 
-- `base_dir/sparse/` contains subfolders named by batch index (e.g. `01`, `02`, …) with COLMAP models plus `points.ply`.
-- Batches are sorted numerically when possible.
-- For each batch:
-  1. Load the local `points.ply` (optionally voxel-downsampled).
-  2. If not the first batch, load COLMAP models of the current and a few recent parent batches.
-  3. Build 3D–3D correspondences using shared 2D features across COLMAP reconstructions.
-  4. Estimate relative pose from current to parent:
-     - Initial SE(3) alignment via Umeyama.
-     - Refine with **yaw-only** ICP (`yaw_pairs_refined`), optimizing only rotation about the Y-axis + translation.
-  5. Chain poses along the sequence: `G_cur = G_prev @ T_rel`.
-  6. Deduplicate points via:
-     - Match-seed-based local deduplication (before global transform).
-     - Geometry-based global deduplication using KD-trees over a sliding window of recent global chunks.
-  7. Insert surviving points into a `VoxelHash`, aggregating into voxel centroids and averaged colors.
+* Batches are loaded in numeric order; mixed numeric/non-numeric names fall back to lexicographic sorting.
+* COLMAP correspondences are built from shared `(image_name, xy)` observations between consecutive batches, producing 3D–3D matched pairs for an Umeyama initialization.
+* ICP refinement assumes the robot travels along straight rows; optimization is constrained to **yaw rotation + translation** to improve robustness.
+* Point deduplication combines match-based seed removal and sliding-window KD-tree geometry pruning. Remaining points are accumulated via a voxel hash (`VOX` controls spatial resolution).
+* `read_write_model.py` must be importable; place it in the repo root if COLMAP is not installed system-wide.
 
-The final merged point cloud is saved as `out` (e.g. `output_merged.ply`).
+The merged `.ply` will later feed clustering and meshing.
 
-Notes:
+### 3. Cluster Plants With `pcd_cluster_v4.py`
 
-- `icp_merge.py` is tuned for a robot moving along a row, so **yaw-only** rotation is appropriate.  
-  For more general motion, `icp_pointcloud_merge_batch_v8_se3.py` provides more flexible SE(3)/translation-only modes.
+`pcd_cluster_v4.py` is intentionally parameterized through variables at the top of the file—edit them before running:
 
-#### 5.4.1. ICP Diagnostics and Plots (`icp_ploting`)
+* `ROOT` & `INPUT_PCD` point to the merged output.
+* Set `USE_AUTO_SCALE=True` to derive DBSCAN/plane thresholds from the scene’s bounding-box diagonal, or keep manual millimeter-like thresholds if the point cloud lacks metric scale.
+* `Z_AXIS_INVERTED` handles the sign flip introduced by VGGT-style coordinate systems (keep `True` for DA3 exports where plants appear at lower Z).
+* Plane fitting can use only non-plant data (`USE_NONPLANT_FOR_PLANE_FIT`) to avoid leaf bias. `USE_NONPLANT_HEIGHT_CUT` is disabled by default to retain sloped ridges.
+* HSV ranges isolate leaves vs stems; tune for each dataset. Masks are combined to form a “plant” mask and everything else is optionally used for plane estimation.
+* DBSCAN parameters (`DBSCAN_EPS_MANUAL`, `DBSCAN_MIN_PTS`) and size filters (`CLUSTER_MIN_SIZE`, `CLUSTER_MAX_SIZE`) determine which clusters are considered valid plants.
+* Ground-like cluster rejection uses median height vs plane, height range, and PCA planarity to remove soil or mulch clusters.
+* Output toggles (`SAVE_CLUSTERED_PCD`, `SAVE_EACH_CLUSTER_SEPARATELY`, etc.) control how point clouds are written. Visualization exports color every cluster uniquely for quick QA.
 
-`icp_ploting` exposes the same core functionality as `icp_pointcloud_merge_batch_v8_se3.py` (streamed merge with multiple ICP modes and voxel-hash deduplication), but additionally:
+Run the script directly:
 
-- records, for each successfully aligned adjacent batch pair, the **ICP RMSE** into a CSV file, and  
-- produces a **bar plot** summarizing alignment errors across the sequence.
+```bash
+python pcd_cluster_v4.py
+```
 
-By default it writes into:
+Interactive Open3D visualizers appear for manual inspection. Adjust thresholds iteratively until each plant forms a clean cluster.
 
-- `ICP_out/registration_errors.csv` – one row per `(batch_i, batch_j)` pair with the corresponding RMSE.  
-- `ICP_out/icp_alignment_errors.png` – Seaborn bar chart (scientific-style) of RMSE vs batch pair index.
+### 4. Build Concave-Hull Meshes and Volumes
 
-Example usage:
+Use `concave_hull.py` to turn each plant (or calibration box) cluster into a watertight mesh and compute volume:
+
+```bash
+python concave_hull.py \
+  --in_pcd /path/to/cluster_07.ply \
+  --out_dir /path/to/cluster_07_concave \
+  --invert_z \
+  --use_scale --scale 0.001 \
+  --alpha_voxel 0.0025 \
+  --alpha_k_list "2,3,4,5,6,8,10,15" \
+  --fill_holes --hole_size_factor 4 \
+  --keep_color --color_knn 3
+```
+
+Key behaviors:
+
+* Applies z-axis inversion and global scaling consistently before any processing. With `--use_scale` the script assumes points are already in meters and reports volume in cubic centimeters.
+* Cleans the cloud (removes NaNs/duplicates) and runs a dedicated alpha-stage voxel downsampling to stabilize the mesh.
+* Computes a nearest-neighbor median distance that drives the alpha sweep (`alpha = k * nn_median`).
+* Optional jitter, normalization, and Open3D tensor-based hole filling help avoid degenerate tetrahedra or open surfaces.
+* Saves every attempted mesh (`*_k*.ply`) and records metadata plus the first watertight mesh that meets the triangle-count threshold in `summary_concave.json`.
+* When `--keep_color` is enabled, mesh vertex colors are transferred from the original point cloud via nearest/kNN lookup.
+
+This tool provides a consistent way to compare plant canopies and reference boxes—use the same `alpha_voxel` and `alpha_k_list` across objects for apples-to-apples measurements.
+
+### 5. Optional: ICP Diagnostics & Plots
+
+For sequences where registration quality must be audited, use the plotting variant:
 
 ```bash
 python icp_ploting \
   --base_dir /path/to/scene_dir \
   --sparse_subfolder sparse \
   --ply points.ply \
-  --out /path/to/output_merged_with_icp_plot.ply \
-  --model_ext ".bin" \
-  --batch_range 1:100 \
+  --out /path/to/merged_diagnostics.ply \
+  --batch_range 1:80 \
   --icp_mode yaw_pairs_refined
 ```
 
-Key arguments (in addition to those documented above for `icp_pointcloud_merge_batch_v8_se3.py`):
+`icp_ploting` mirrors the merge logic but additionally:
 
-- `--icp_mode`  
-  Selects the registration strategy:
-  - `geometry` – full-cloud SE(3) ICP with nearest-neighbor correspondences.
-  - `matched_pairs` – fixed 3D–3D correspondences (SE(3)).
-  - `trans_only_geometry` – translation-only point-to-plane ICP.
-  - `trans_only_pairs` – translation-only from fixed 3D–3D pairs.
-  - `yaw_pairs` – yaw-only rotation + translation from fixed pairs (closed-form).
-  - `yaw_pairs_refined` – yaw-only rotation + translation with a few refinement iterations.
+* Logs per-pair RMSE, correspondence counts, and mode selections in `ICP_out/registration_errors.csv`.
+* Generates `ICP_out/icp_alignment_errors.png` (Seaborn bar chart) where each bar corresponds to a batch transition, useful when tuning `MATCH_TO_PLY_RADIUS`, ICP modes, or dedup parameters.
 
-Use `icp_ploting` when you want **quantitative diagnostics** of alignment quality along the sequence, for example when comparing different ICP settings or checking robustness on challenging field runs.
-
-### 5.5. Ground Plane Fitting and Plant Clustering
-
-`pcd_cluster_v1.py` operates on a merged point cloud (`.ply`) and performs:
-
-1. **RANSAC Ground Plane Fitting**  
-   - Uses `open3d.geometry.PointCloud.segment_plane`.
-   - Distance threshold can be specified manually or scaled with the scene’s bounding box.
-
-2. **Height-Based Cropping**  
-   - Computes signed distances of all points to the fitted plane.  
-   - You can keep either the “higher” or “lower” side w.r.t the plane, and drop the outermost percentage of points (controlled via `HEIGHT_PERCENTILE` and `KEEP_HIGHER_SIDE`).
-
-3. **Color-Based Plant Masking (HSV)**  
-   - Convert RGB colors to HSV.  
-   - Apply different HSV ranges to detect:
-     - Leaves (greenish).
-     - Stems/petioles (reddish/yellow-brown).  
-   - Combined **plant mask** is the union of leaf + stem masks.
-
-4. **DBSCAN Clustering per Plant**  
-   - Run DBSCAN on plant-only points:
-     - `eps` set manually (`DBSCAN_EPS_MANUAL`) or automatically scaled from scene size.
-     - `min_points` set via `DBSCAN_MIN_PTS`.  
-   - Each cluster is interpreted as a **single strawberry plant**.
-
-5. **Saving Clustered Point Clouds**  
-   - Optionally save **all clusters combined** in one file (`CLUSTERED_OUTPUT_PATH`).  
-   - Optionally save **each cluster separately** (`clusters_out/cluster_<id>.ply`).
-
-6. **Visualization**  
-   - Visualization 1: cropped cloud with background gray and each plant cluster colored differently.  
-   - Visualization 2: plant clusters only, in original RGB colors.
-
-You must edit the top of `pcd_cluster_v1.py` to set:
-
-```python
-INPUT_PCD = "/path/to/merged_output.ply"
-USE_AUTO_SCALE = True or False
-...
-```
-
-Then run:
-
-```bash
-python pcd_cluster_v1.py
-```
-
-Open3D windows will pop up for interactive inspection.
+Use this when experimenting with non-default ICP configurations or when diagnosing drift.
 
 ---
 
-## 6. Scale Recovery (Planned / Partially Done)
+## Scale & Axis Conventions
 
-VGGT reconstructions are **scale ambiguous**: distances are only defined up to a global factor.  
-Your current design for scale recovery is:
-
-- Place **boxes of known volume/shape** within the field-of-view.  
-- After the global point cloud is merged (step 3), **identify the reconstructed boxes** in the point cloud.
-- Fit a geometric model (e.g. bounding box or mesh) to these reconstructed boxes to estimate their volume/size in VGGT units.
-- Compute a global scale factor:
-
-```text
-scale_factor = (true_box_volume_in_m^3) / (reconstructed_box_volume_in_vggt_units^3)
-```
-
-or equivalently in linear dimensions.
-
-This repository does not yet implement:
-
-- Automatic detection/segmentation of the reference boxes.
-- The actual computation of the scale factor and application to all points.
-
-The planned approach is analogous to what was done for SASP using known-shape boxes, but adapted to VGGT point clouds and (eventually) meshes.
+* DA3 reconstructions remain **scale ambiguous**. To work in metric units, compute a global scale factor using reference boxes and pass it into `concave_hull.py` via `--use_scale --scale <meters_per_unit>`. The clustering script can also adapt thresholds based on scene size (`USE_AUTO_SCALE`).
+* Most exported point clouds use a convention where the robot travels along **+X**, gravity aligns roughly with **-Z**, and the strawberries sit at lower Z than the ground plane. Flip `Z_AXIS_INVERTED` or `--invert_z` if your dataset differs.
 
 ---
 
-## 7. Mesh Reconstruction and Volume Estimation (Planned)
+## Troubleshooting & Tips
 
-For accurate per-plant volume estimation, you plan to:
+* **Missing frames warnings:** `batch_summary.txt` lists frames that do not contain the expected number of camera images. Investigate capture issues if the count stays low; reconstructions will still run but matches may be sparser.
+* **DA3 CLI restarts:** The wrapper deletes each batch’s export directory before launching DA3 to avoid interactive prompts. If DA3 crashes, rerun the wrapper with `--only_batch <id>` after fixing the issue.
+* **read_write_model errors:** Ensure `read_write_model.py` (from COLMAP) is colocated with the scripts or available on `PYTHONPATH`; otherwise the ICP scripts cannot parse BIN/TXT reconstructions.
+* **Plane fit failures:** When color masking leaves too few non-plant points, `pcd_cluster_v4.py` automatically falls back to using all points for RANSAC. Check HSV thresholds or disable `USE_NONPLANT_FOR_PLANE_FIT` if this happens frequently.
+* **Concave hull not watertight:** Increase `--hole_size_factor`, widen `--alpha_k_list`, or enable `--normalize`/`--jitter_ratio` slightly. Review each saved `*_k*.ply` to understand where the mesh breaks.
+* **Long sequences:** Use `--batch_range` in both the batching script and ICP merge to focus on subsets without touching the rest of the pipeline. Window sizes (`WINDOW_KDT`, `WINDOW_MATCH`) in the merge scripts determine both speed and dedup aggressiveness—decrease them for huge datasets when memory becomes an issue.
 
-1. Take each plant cluster (point cloud) from `pcd_cluster_v1.py`.
-2. Reconstruct a **mesh** (e.g. Poisson surface reconstruction or ball-pivoting) that captures canopy geometry more faithfully than a concave hull.
-3. Compute the **mesh volume** in VGGT units.
-4. Apply the **scale factor** from the reference boxes to convert to physical volume (e.g. cubic meters or liters).
-
-Comparison to SASP:
-
-- SASP used a concave hull to approximate canopy volume.
-- Here you intend to use **meshes**, which provide:
-  - smoother, more detailed surface representation,
-  - better handling of complex plant shapes,
-  - more reliable volume estimates.
-
-Implementation of meshing and scaling is currently **to be done**; the existing code already provides:
-
-- Plant-level point clouds (clusters).
-- Visualization and basic clustering diagnostics, making it easier to debug meshing algorithms once implemented.
-
----
-
-## 8. Research Concerns and Open Questions
-
-### 8.1. Lack of Ground-Truth Plant Volume
-
-One major challenge is that **ground-truth 3D volume** for field-grown strawberry plants is essentially unavailable:
-
-- Apart from known-volume boxes, there is no direct physical measurement to supervise or validate the 3D volume estimates.
-- You plan to:
-  - Reuse strategies from SASP (e.g. relying on these known-shape boxes for indirect validation).
-  - Potentially design controlled experiments (e.g. lab setups) where destructive measurement is possible for a subset of plants.
-
-The current codebase is thus **self-consistent** but not strongly supervised by ground-truth volumes.  
-Future work:
-
-- Statistical analysis of volume stability under repeated scans.
-- Comparison against proxy measurements (e.g. manual plant height, canopy width, or biomass).
-
-### 8.2. Benchmarking Reconstruction Quality
-
-At present, the most realistic benchmarking target is the **reconstruction component**:
-
-- How well does VGGT reconstruct geometry in this specific field setting (long sequence + multi-camera + outdoor conditions)?
-- How does it compare to alternative pipelines (e.g. COLMAP-only, multiview stereo baselines, or other learned methods)?
-
-Open issues:
-
-- Identifying appropriate baselines and metrics:
-  - Reprojection error / track consistency.
-  - Geometric consistency across overlapping batches.
-  - Stability of structure across repeated passes of the robot.
-- Designing **credible benchmarks** that show VGGT’s strengths in:
-  - Handling long sequences.
-  - Exploiting multi-camera setups.
-  - Robustness to outdoor lighting and partial occlusions.
-
-You plan to spend more time on this in upcoming iterations, likely by:
-
-- Creating synthetic or semi-controlled scenes with known geometry.
-- Leveraging reference objects beyond boxes (e.g. calibration spheres or known structures).
-
----
-
-## 9. Practical Tips and Gotchas
-
-- Many scripts contain **hard-coded absolute paths** in the defaults (e.g. `BASE_DIR`, `INPUT_PCD`, `OUT_PLY`).  
-  Always override these via CLI or edit them to match your environment.
-
-- For `icp_merge.py` and `icp_pointcloud_merge_batch_v8_se3.py`, ensure `read_write_model.py` is importable.  
-  You can drop the COLMAP-provided `read_write_model.py` into this directory or add it to `PYTHONPATH`.
-
-- `demo_colmap_perc.py` downloads VGGT weights at first use; if you’re on a cluster or offline environment, download them in advance and load from a local path.
-
-- The ICP merge assumes **yaw-only rotation** around the Y-axis (up). If your robot deviates from a straight line or has significant roll/pitch, you may need the more general SE(3) options in `icp_pointcloud_merge_batch_v8_se3.py` or a different registration strategy.
-
-- When using `icp_ploting`, ensure `matplotlib` and `seaborn` are installed; the script will create an `ICP_out/` directory if it does not exist and save both the CSV log and the PNG plot there.
-
-- Color-based thresholds in `pcd_cluster_v1.py` are tuned for a particular imaging setup.  
-  You will likely need to adjust HSV ranges and DBSCAN parameters for different cameras, lighting, or cultivars.
-
----
-
-## 10. Status Summary
-
-Implementation status relative to the planned pipeline:
-
-- [x] Sequence partitioning of multi-camera sequences (`batch_divider_v2.py`).
-- [x] Batch-wise VGGT reconstruction and COLMAP export (`demo_colmap_perc.py`).
-- [x] Multi-batch stitching with yaw-constrained ICP and voxel-hash merge (`icp_merge.py` / `icp_pointcloud_merge_batch_v8_se3.py` / `icp_ploting`).
-- [x] Ground-plane fitting, height cropping, and plant clustering (`pcd_cluster_v1.py`).
-- [ ] Robust scale recovery using known-volume boxes (design complete, implementation pending).
-- [ ] Mesh reconstruction per plant and mesh-based volume estimation.
-- [ ] Systematic benchmarking of VGGT vs alternatives in long-sequence, multi-camera field environments.
-
-This README will evolve as you add scale recovery, meshing, and benchmarking scripts. If you’d like, the next steps could be to design a small API for per-plant mesh reconstruction and integrate a simple mesh volume estimator into this pipeline.
+This README will continue to evolve alongside the DA3-based workflow. Please update it when new calibration, scaling, or benchmarking modules are added.
