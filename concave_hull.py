@@ -17,9 +17,12 @@ Key engineering fixes (to avoid invalid tetra + non-watertight):
 5) Optional mesh hole filling (tensor fill_holes): --fill_holes + --hole_size_factor
 6) Keep largest connected component to remove stray pieces
 
+NEW (color preservation):
+- If input point cloud has colors, you can transfer colors to mesh vertex_colors
+  before saving mesh: --keep_color (optionally --color_knn)
+
 Outputs:
-- concave_alpha_k*.ply for each attempt
-- concave_alpha_k*_repaired.ply if hole fill enabled
+- <input_pcd_name>_k*.ply for each attempt (now can include vertex colors)
 - summary_concave.json
 
 Notes:
@@ -64,7 +67,7 @@ def parse_args():
 
     # Alpha sweep
     ap.add_argument("--alpha_k_list", type=str,
-                    default="20,30,40,60,80,100,120,150",
+                    default="2,3,4,5,6,7,8,9,10,15,20",
                     help="Comma-separated multipliers. alpha = k * nn_median(alpha_pcd)")
     ap.add_argument("--min_triangles", type=int, default=2000)
 
@@ -84,6 +87,12 @@ def parse_args():
     # Save options
     ap.add_argument("--save_debug_pcd", action="store_true",
                     help="Save alpha-stage pcd after downsample/cleaning/jitter as alpha_pcd.ply")
+
+    # Color transfer
+    ap.add_argument("--keep_color", action="store_true",
+                    help="Transfer colors from input point cloud to mesh vertex_colors before saving.")
+    ap.add_argument("--color_knn", type=int, default=1,
+                    help="kNN used for color transfer. 1=nearest neighbor, >1=average of k neighbors.")
 
     return ap.parse_args()
 
@@ -200,6 +209,33 @@ def fill_holes_tensor(mesh_legacy, hole_size):
         return mesh_legacy
 
 
+def transfer_mesh_vertex_colors_from_pcd(mesh, pcd, knn=1):
+    """
+    Assign mesh.vertex_colors by nearest (or kNN averaged) colors from pcd.
+    Works only if pcd has colors.
+    """
+    if not pcd.has_colors():
+        return mesh
+
+    V = np.asarray(mesh.vertices)
+    if V.shape[0] == 0:
+        return mesh
+
+    tree = o3d.geometry.KDTreeFlann(pcd)
+    pcd_colors = np.asarray(pcd.colors)
+    vcols = np.zeros((V.shape[0], 3), dtype=np.float64)
+
+    k = max(1, int(knn))
+    for i, v in enumerate(V):
+        _, idx, _ = tree.search_knn_vector_3d(v, k)
+        if len(idx) == 0:
+            continue
+        vcols[i] = pcd_colors[np.asarray(idx)].mean(axis=0)
+
+    mesh.vertex_colors = o3d.utility.Vector3dVector(vcols)
+    return mesh
+
+
 def try_alpha_shape(pcd_for_alpha,
                     alpha,
                     do_fill_holes=False,
@@ -227,8 +263,6 @@ def try_alpha_shape(pcd_for_alpha,
     vol = None
     if wt:
         try:
-            # Open3D returns volume in the current length unit cubed.
-            # Apply conversion multiplier (e.g., m^3 -> cm^3).
             vol = float(mesh.get_volume()) * float(volume_mult)
         except Exception:
             vol = None
@@ -257,11 +291,13 @@ def main():
     if pcd0.is_empty():
         raise ValueError("Empty point cloud.")
 
+    # Input name stem for output naming
+    stem = os.path.splitext(os.path.basename(args.in_pcd))[0]
+
     # Apply VGGT corrections consistently
     pcd0 = apply_vggt(pcd0, args.invert_z, args.use_scale, args.scale)
 
-    # Volume reporting unit:
-    # If scaled to meters (common usage), convert m^3 -> cm^3 by *1e6
+    # Volume reporting unit
     if args.use_scale:
         volume_mult = 1e6
         volume_unit = "cm^3"
@@ -269,7 +305,7 @@ def main():
         volume_mult = 1.0
         volume_unit = "unit^3"
 
-    # Build alpha-stage point cloud (THIS is what drives concave hull)
+    # Build alpha-stage point cloud
     alpha_voxel = float(args.alpha_voxel)
     if alpha_voxel <= 0:
         raise ValueError("--alpha_voxel must be > 0 for a stable concave hull workflow.")
@@ -289,7 +325,7 @@ def main():
         pcd_alpha, k=2, sample=int(args.alpha_nn_sample), seed=0
     )
 
-    # Optional jitter to break coplanar/grid degeneracy
+    # Optional jitter
     if float(args.jitter_ratio) > 0:
         pts = np.asarray(pcd_alpha.points, dtype=np.float64)
         sigma = float(args.jitter_ratio) * float(nn_med)
@@ -297,9 +333,9 @@ def main():
         pcd_alpha.points = o3d.utility.Vector3dVector(pts)
 
     if args.save_debug_pcd:
-        o3d.io.write_point_cloud(os.path.join(args.out_dir, "alpha_pcd.ply"), pcd_alpha)
+        o3d.io.write_point_cloud(os.path.join(args.out_dir, f"{stem}_alpha_pcd.ply"), pcd_alpha)
 
-    # Optional normalization for alpha computation
+    # Optional normalization
     center = None
     diag = None
     pcd_for_alpha = pcd_alpha
@@ -349,11 +385,17 @@ def main():
                 info["volume"] = None
             info["volume_unit"] = str(volume_unit)
 
-        # Save mesh
+        # Transfer original point colors onto mesh vertices before saving (optional)
+        if args.keep_color:
+            mesh = transfer_mesh_vertex_colors_from_pcd(mesh, pcd0, knn=int(args.color_knn))
+
+        # Save mesh as <input_pcd_name>_k*.ply
         tag = f"k{str(k).replace('.','p')}"
-        out_mesh = os.path.join(args.out_dir, f"concave_alpha_{tag}.ply")
+        out_mesh = os.path.join(args.out_dir, f"{stem}_{tag}.ply")
         o3d.io.write_triangle_mesh(out_mesh, mesh)
+
         info["mesh_path"] = out_mesh
+        info["mesh_has_vertex_colors"] = bool(len(np.asarray(mesh.vertex_colors)) == len(np.asarray(mesh.vertices)))
         attempts.append(info)
 
         # Selection criteria
@@ -380,7 +422,7 @@ def main():
             "outlier_nb": int(args.outlier_nb),
             "outlier_std": float(args.outlier_std),
             "points_alpha": int(len(pcd_alpha.points)),
-            "nn_median_alpha": float(nn_med) if not args.normalize else float(nn_med * float(diag)),  # report in original scale
+            "nn_median_alpha": float(nn_med) if not args.normalize else float(nn_med * float(diag)),
             "normalize_used": bool(args.normalize),
             "jitter_ratio": float(args.jitter_ratio),
         },
@@ -388,6 +430,12 @@ def main():
             "fill_holes": bool(args.fill_holes),
             "hole_size_factor": float(args.hole_size_factor),
             "hole_size": float(hole_size) if hole_size is not None else None,
+        },
+        "color_transfer": {
+            "keep_color": bool(args.keep_color),
+            "color_knn": int(args.color_knn),
+            "input_has_colors": bool(pcd0.has_colors()),
+            "note": "colors are assigned to mesh vertex_colors via nearest/kNN from input point cloud",
         },
         "alpha_sweep": {
             "k_list": k_list,
@@ -409,7 +457,7 @@ def main():
         print("  summary =", out_json)
     else:
         print("[WARN] No watertight concave hull mesh found.")
-        print("  Check the saved meshes: concave_alpha_k*.ply")
+        print("  Check the saved meshes:", f"{stem}_k*.ply")
         print("  Try:")
         print("    1) Increase --hole_size_factor (e.g., 5, 8, 12) with --fill_holes")
         print("    2) Adjust --alpha_k_list (wider range)")
