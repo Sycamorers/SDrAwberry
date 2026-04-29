@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environments
+.venv/
+venv/
+env/
+.env
+.conda/
+
+# Logs and notebooks
+*.log
+logs/
+.ipynb_checkpoints/
+
+# Local data and generated pipeline outputs
+data/
+datasets/
+raw/
+outputs/
+results/
+scenes/
+scene*/
+*_scene/
+downloads/
+batches/
+sparse/
+merged/
+clusters/
+meshes/
+batch_summary.json
+batch_summary.txt
+summary_clustering.json
+summary_concave.json
+
+# Large reconstruction/data artifacts
+*.ply
+*.pcd
+*.las
+*.laz
+*.obj
+*.stl
+*.glb
+*.bin
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.png.tmp
+
+# Keep documentation assets tracked despite general large-output rules.
+!docs/assets/
+!docs/assets/pipeline.png
+
+# System/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

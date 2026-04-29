@@ -1,0 +1,18 @@
+name: sdrawberry
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - numpy
+  - scipy
+  - matplotlib
+  - pyyaml
+  - tqdm
+  - pip:
+      - -e .
+      - open3d>=0.18
+      - opencv-python>=4.8
+      - pycolmap>=0.6
+      - trimesh>=4.0
+      - pytest>=7.4

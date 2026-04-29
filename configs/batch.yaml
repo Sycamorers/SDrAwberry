@@ -1,0 +1,20 @@
+# Defaults for preparing overlapping synchronized multi-camera batches.
+scene_dir: /path/to/scene
+batching:
+  batch_size: 10
+  overlap_frames: 5
+  symlink: true
+  prepare_only: false
+  cams_per_frame:
+  only_batch:
+  max_batches:
+  batch_range:
+  da3_model_dir: depth-anything/DA3NESTED-GIANT-LARGE-1.1
+  da3_device: cuda
+  da3_conf_thresh_percentile: 75
+  da3_num_max_points: 1000000
+  da3_process_res: 504
+  da3_process_res_method: upper_bound_resize
+  da3_ref_view_strategy: saddle_balanced
+  da3_export_ply: true
+  da3_disable_triton: false

@@ -1,0 +1,22 @@
+# Defaults for alpha-shape concave hull reconstruction.
+concave_hull:
+  in_pcd: /path/to/scene/clusters/cluster_0001.ply
+  out_dir: /path/to/scene/meshes/cluster_0001
+  invert_z: false
+  use_scale: false
+  scale: 1.0
+  remove_outlier: false
+  outlier_nb: 30
+  outlier_std: 1.8
+  alpha_voxel: 0.006
+  alpha_nn_sample: 5000
+  alpha_m_list: "2,3,4,5,6,7,8,9,10,15,20"
+  min_triangles: 2000
+  normalize: false
+  jitter_ratio: 0.001
+  fill_holes: true
+  hole_size_factor: 3.0
+  save_debug_pcd: false
+  keep_color: false
+  color_knn: 1
+  save_only_selected: true

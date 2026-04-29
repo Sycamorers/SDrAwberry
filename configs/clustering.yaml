@@ -1,0 +1,38 @@
+# Defaults for support-plane, HSV, DBSCAN, and ground-like cluster filtering.
+clustering:
+  input_pcd: /path/to/scene/merged/merged_global.ply
+  out_dir: /path/to/scene/clusters
+  use_auto_scale: false
+  z_axis_inverted: false
+  plane_dist_threshold: 0.005
+  plane_dist_threshold_scale: 0.005
+  plane_ransac_n: 3
+  plane_iter: 1000
+  use_nonplant_height_cut: false
+  auto_height_margin_factor: 4.0
+  leaf_h_min: 30
+  leaf_h_max: 95
+  leaf_s_min: 60
+  leaf_v_min: 40
+  stem_red_1_max: 20
+  stem_red_2_min: 160
+  stem_yellow_min: 20
+  stem_yellow_max: 40
+  stem_s_min: 40
+  stem_v_min: 40
+  dbscan_eps: 0.015
+  dbscan_eps_scale: 0.02
+  dbscan_min_pts: 120
+  save_clustered_pcd: false
+  save_each_cluster_separately: true
+  cluster_min_size: 10000
+  cluster_max_size:
+  save_vis_all_colored: false
+  save_vis_clusters_colored: false
+  debug_save_cluster_stats: false
+  filter_groundlike_clusters: true
+  ground_median_margin_factor: 3.0
+  ground_height_range_factor: 4.0
+  ground_planarity_ratio_max: 0.02
+  use_nonplant_for_plane_fit: false
+  visualize: false

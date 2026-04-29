@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sdrawberry"
+version = "0.1.0"
+description = "Scale-referenced long-sequence strawberry canopy reconstruction and volume estimation pipeline."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+  {name = "Sycamorers"}
+]
+keywords = ["3d-reconstruction", "phenotyping", "strawberry", "point-cloud", "canopy-volume"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Topic :: Scientific/Engineering :: Image Processing",
+]
+dependencies = [
+  "numpy>=1.23",
+  "scipy>=1.9",
+  "open3d>=0.18",
+  "opencv-python>=4.8",
+  "matplotlib>=3.7",
+  "PyYAML>=6.0",
+  "tqdm>=4.65",
+  "pycolmap>=0.6",
+  "trimesh>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4",
+]
+
+[project.urls]
+Homepage = "https://github.com/Sycamorers/SDrAwberry"
+Repository = "https://github.com/Sycamorers/SDrAwberry"
+Dataset = "https://huggingface.co/datasets/Sycamorers/SDrAwberry"
+
+[project.scripts]
+sdrawberry-batch = "sdrawberry.batch:main"
+sdrawberry-fusion = "sdrawberry.fusion:main"
+sdrawberry-cluster = "sdrawberry.clustering:main"
+sdrawberry-concave-hull = "sdrawberry.concave_hull:main"
+sdrawberry-full-pipeline = "sdrawberry.pipeline:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

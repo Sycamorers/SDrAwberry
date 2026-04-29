@@ -1,0 +1,50 @@
+# Copy this file and edit scene_dir before running scripts/run_full_pipeline.py.
+scene_dir: /path/to/scene
+
+stages:
+  batching: true
+  fusion: true
+  clustering: true
+  concave_hull: true
+
+batching:
+  batch_size: 10
+  overlap_frames: 5
+  symlink: true
+  prepare_only: false
+  da3_model_dir: depth-anything/DA3NESTED-GIANT-LARGE-1.1
+  da3_device: cuda
+  da3_conf_thresh_percentile: 75
+  da3_num_max_points: 1000000
+  da3_process_res: 504
+  da3_process_res_method: upper_bound_resize
+  da3_ref_view_strategy: saddle_balanced
+  da3_export_ply: true
+
+fusion:
+  sparse_subfolder: sparse
+  ply: points.ply
+  out: merged/merged_global.ply
+  window_kdt: 4
+  window_match: 2
+  pre_voxel: 0.003
+  voxel: 0.002
+  geom_radius: 0.0015
+  match_radius: 0.0008
+  k_for_svd: 5000
+
+clustering:
+  dbscan_eps: 0.015
+  dbscan_min_pts: 120
+  plane_dist_threshold: 0.005
+  z_axis_inverted: true
+  cluster_min_size: 10000
+  filter_groundlike_clusters: true
+
+concave_hull:
+  cluster_glob: cluster_*.ply
+  alpha_voxel: 0.006
+  alpha_m_list: "2,3,4,5,6,7,8,9,10,15,20"
+  min_triangles: 2000
+  fill_holes: true
+  save_only_selected: true

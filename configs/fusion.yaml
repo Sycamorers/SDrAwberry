@@ -1,0 +1,18 @@
+# Defaults for streamed cross-batch point-cloud fusion.
+scene_dir: /path/to/scene
+fusion:
+  base_dir: /path/to/scene
+  sparse_subfolder: sparse
+  ply: points.ply
+  out: merged/merged_global.ply
+  max_batches:
+  batch_range:
+  model_ext: ""
+  icp_iters: 20
+  window_kdt: 4
+  window_match: 2
+  pre_voxel: 0.003
+  voxel: 0.002
+  geom_radius: 0.0015
+  match_radius: 0.0008
+  k_for_svd: 5000
