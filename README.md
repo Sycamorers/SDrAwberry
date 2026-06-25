@@ -212,17 +212,22 @@ DA3-style feed-forward reconstructions may be internally consistent but non-metr
 
 ## Citation
 
-Formal citation: coming soon. Until then, please reference the software repository URL.
+If you use SDrAwberry in your research, please cite:
 
-Placeholder BibTeX:
+Huang, Z., Lee, W. S., Qin, R., Medeiros, H., Jeon, H., & Zhu, H. (2026). SDrAwberry: Scale-referenced Depth-Anything-3 long-sequence reconstruction for Strawberry canopy volume estimation. *Computers and Electronics in Agriculture*, 252, 112088. https://doi.org/10.1016/j.compag.2026.112088
+
+BibTeX:
 
 ```bibtex
-@misc{sdrawberry_placeholder,
-  title = {SDrAwberry: Scale-Referenced Long-Sequence Strawberry Canopy Reconstruction},
-  author = {Sycamorers},
+@article{huang2026sdrawberry,
+  title = {SDrAwberry: Scale-referenced Depth-Anything-3 long-sequence reconstruction for Strawberry canopy volume estimation},
+  author = {Huang, Zijing and Lee, Won Suk and Qin, Ruoyao and Medeiros, Henry and Jeon, Hongyoung and Zhu, Heping},
+  journal = {Computers and Electronics in Agriculture},
+  volume = {252},
+  pages = {112088},
   year = {2026},
-  url = {https://github.com/Sycamorers/SDrAwberry},
-  note = {Citation placeholder}
+  doi = {10.1016/j.compag.2026.112088},
+  url = {https://www.sciencedirect.com/science/article/abs/pii/S0168169926006836}
 }
 ```
 

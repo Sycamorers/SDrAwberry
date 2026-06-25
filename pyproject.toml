@@ -42,6 +42,7 @@ dev = [
 Homepage = "https://github.com/Sycamorers/SDrAwberry"
 Repository = "https://github.com/Sycamorers/SDrAwberry"
 Dataset = "https://huggingface.co/datasets/Sycamorers/SDrAwberry"
+Publication = "https://doi.org/10.1016/j.compag.2026.112088"
 
 [project.scripts]
 sdrawberry-batch = "sdrawberry.batch:main"

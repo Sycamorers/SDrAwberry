@@ -1,0 +1,44 @@
+cff-version: 1.2.0
+message: "If you use SDrAwberry in your research, please cite the article below."
+type: software
+title: "SDrAwberry"
+authors:
+  - family-names: Huang
+    given-names: Zijing
+  - family-names: Lee
+    given-names: Won Suk
+    orcid: "https://orcid.org/0000-0002-9420-4789"
+  - family-names: Qin
+    given-names: Ruoyao
+  - family-names: Medeiros
+    given-names: Henry
+  - family-names: Jeon
+    given-names: Hongyoung
+  - family-names: Zhu
+    given-names: Heping
+repository-code: "https://github.com/Sycamorers/SDrAwberry"
+license: MIT
+preferred-citation:
+  type: article
+  authors:
+    - family-names: Huang
+      given-names: Zijing
+    - family-names: Lee
+      given-names: Won Suk
+      orcid: "https://orcid.org/0000-0002-9420-4789"
+    - family-names: Qin
+      given-names: Ruoyao
+    - family-names: Medeiros
+      given-names: Henry
+    - family-names: Jeon
+      given-names: Hongyoung
+    - family-names: Zhu
+      given-names: Heping
+  title: "SDrAwberry: Scale-referenced Depth-Anything-3 long-sequence reconstruction for Strawberry canopy volume estimation"
+  journal: "Computers and Electronics in Agriculture"
+  volume: 252
+  pages: "112088"
+  year: 2026
+  month: 9
+  doi: "10.1016/j.compag.2026.112088"
+  url: "https://www.sciencedirect.com/science/article/abs/pii/S0168169926006836"
